@@ -181,6 +181,14 @@ function showNextDrawing(lobby, io) {
 
   const currentPlayerId = state.viewingOrder[state.currentViewingIndex];
   const currentPlayer = lobby.players.get(currentPlayerId);
+
+  // Skip if player disconnected
+  if (!currentPlayer) {
+    state.currentViewingIndex++;
+    showNextDrawing(lobby, io);
+    return;
+  }
+
   const drawing = state.drawings[currentPlayerId] || null;
 
   io.to(roomCode).emit('game:show-drawing', {
@@ -251,6 +259,9 @@ function finishViewing(lobby, io) {
 
   for (const [playerId, scores] of Object.entries(state.scores)) {
     const player = lobby.players.get(playerId);
+    // Skip disconnected players
+    if (!player) continue;
+
     const netScore = scores.up - scores.down;
     playerScores.push({
       playerId,

@@ -171,6 +171,8 @@ function setupSocketHandlers(io) {
           gameModule.startDealing(lobby, io);
         } else if (data.gameId === 'drawing-game') {
           gameModule.startWordSubmission(lobby, io);
+        } else if (data.gameId === 'multiply-madness') {
+          gameModule.startGame(lobby, io);
         }
 
         callback({ success: true });
