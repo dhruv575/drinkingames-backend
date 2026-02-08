@@ -177,10 +177,31 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/**
+ * Build reconnect state for a player rejoining mid-game
+ */
+function getReconnectState(lobby, playerId) {
+  const state = lobby.gameState;
+  if (!state) return {};
+
+  const base = { phase: state.phase };
+
+  // Always include hole cards for this player
+  const holeCards = state.playerHands[playerId]?.holeCards || [];
+
+  if (state.phase === 'results') {
+    return { ...base, holeCards, communityCards: state.communityCards, results: state.results };
+  }
+
+  // During dealing phases, send revealed community cards so far
+  return { ...base, holeCards, communityCards: [...state.revealedCommunity] };
+}
+
 module.exports = {
   GAME_NAME,
   initGame,
   startDealing,
   handleAction,
-  endGame
+  endGame,
+  getReconnectState
 };

@@ -1,11 +1,11 @@
 const GAME_NAME = 'multiply-madness';
 
 const TIMING = {
-  GAME_DURATION: 45000,  // 45 seconds
+  GAME_DURATION: 15000,  // 15 seconds
   PENALTY_TIME: 3000,    // 3 second penalty for wrong answers
 };
 
-const QUESTION_COUNT = 45;
+const QUESTION_COUNT = 15;
 
 /**
  * Generate valid multiplication problems (1-digit x 1-digit with 2-digit answer)
@@ -68,6 +68,8 @@ function initGame(lobby, io) {
 function startGame(lobby, io) {
   const roomCode = lobby.code;
   const state = lobby.gameState;
+
+  state.phaseStartTime = Date.now();
 
   io.to(roomCode).emit('game:phase', {
     phase: 'playing',
@@ -178,10 +180,36 @@ function endGame(lobby) {
   lobby.endGame();
 }
 
+/**
+ * Build reconnect state for a player rejoining mid-game
+ */
+function getReconnectState(lobby, playerId) {
+  const state = lobby.gameState;
+  if (!state) return {};
+
+  if (state.phase === 'playing') {
+    const elapsed = Date.now() - (state.phaseStartTime || Date.now());
+    const remaining = Math.max(0, TIMING.GAME_DURATION - elapsed);
+    return {
+      phase: 'playing',
+      questions: state.questions,
+      timeLimit: remaining,
+      penaltyTime: TIMING.PENALTY_TIME
+    };
+  }
+
+  if (state.phase === 'results') {
+    return { phase: 'results', results: state.results };
+  }
+
+  return { phase: state.phase };
+}
+
 module.exports = {
   GAME_NAME,
   initGame,
   startGame,
   handleAction,
-  endGame
+  endGame,
+  getReconnectState
 };

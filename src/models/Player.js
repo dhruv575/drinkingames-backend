@@ -7,13 +7,16 @@ class Player {
     this.username = username;
     this.isHost = false;
     this.lobbyCode = null;
+    this.disconnected = false;
+    this.disconnectTimeout = null;
   }
 
   toPublic() {
     return {
       id: this.id,
       username: this.username,
-      isHost: this.isHost
+      isHost: this.isHost,
+      disconnected: this.disconnected
     };
   }
 }

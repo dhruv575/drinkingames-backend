@@ -45,6 +45,7 @@ function startWordSubmission(lobby, io) {
   const state = lobby.gameState;
 
   state.phase = 'word-submission';
+  state.phaseStartTime = Date.now();
 
   io.to(roomCode).emit('game:phase', {
     phase: 'word-submission',
@@ -106,6 +107,7 @@ function finishWordSubmission(lobby, io) {
   }
 
   state.phase = 'drawing';
+  state.phaseStartTime = Date.now();
 
   io.to(roomCode).emit('game:phase', {
     phase: 'drawing',
@@ -113,10 +115,10 @@ function finishWordSubmission(lobby, io) {
     timeLimit: TIMING.DRAWING_PHASE
   });
 
-  // Set timer for drawing phase
+  // Set timer for drawing phase (extra 2s buffer for auto-submit network latency)
   state.timers.drawing = setTimeout(() => {
     finishDrawing(lobby, io);
-  }, TIMING.DRAWING_PHASE);
+  }, TIMING.DRAWING_PHASE + 2000);
 }
 
 /**
@@ -337,10 +339,60 @@ function shuffleArray(arr) {
   return shuffled;
 }
 
+/**
+ * Build reconnect state for a player rejoining mid-game
+ */
+function getReconnectState(lobby, playerId) {
+  const state = lobby.gameState;
+  if (!state) return {};
+
+  const elapsed = Date.now() - (state.phaseStartTime || Date.now());
+  const base = { phase: state.phase };
+
+  switch (state.phase) {
+    case 'word-submission': {
+      const remaining = Math.max(0, TIMING.WORD_SUBMISSION - elapsed);
+      return {
+        ...base,
+        timeLimit: remaining,
+        hasSubmittedWord: !!state.submittedWords[playerId]
+      };
+    }
+    case 'drawing': {
+      const remaining = Math.max(0, TIMING.DRAWING_PHASE - elapsed);
+      return {
+        ...base,
+        word: state.chosenWord,
+        timeLimit: remaining,
+        hasSubmittedDrawing: !!state.drawings[playerId]
+      };
+    }
+    case 'viewing': {
+      const currentPlayerId = state.viewingOrder[state.currentViewingIndex];
+      const currentPlayer = lobby.players.get(currentPlayerId);
+      return {
+        ...base,
+        currentDrawing: currentPlayer ? {
+          drawingPlayerId: currentPlayerId,
+          drawingPlayerUsername: currentPlayer.username,
+          drawing: state.drawings[currentPlayerId] || null,
+          index: state.currentViewingIndex,
+          total: state.viewingOrder.length
+        } : null
+      };
+    }
+    case 'results':
+      return { ...base, results: state.results };
+    default:
+      return base;
+  }
+}
+
 module.exports = {
   GAME_NAME,
   initGame,
   startWordSubmission,
   handleAction,
-  endGame
+  endGame,
+  getReconnectState
 };

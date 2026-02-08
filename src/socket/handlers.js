@@ -5,6 +5,8 @@ const { getAvailableGames, getGame } = require('../games');
 // Track players by socket ID
 const playersBySocket = new Map();
 
+const DISCONNECT_GRACE_PERIOD = 30000; // 30 seconds
+
 /**
  * Validate username (min 4 letters)
  */
@@ -245,10 +247,69 @@ function setupSocketHandlers(io) {
       }
     });
 
+    // Handle reconnection
+    socket.on('player:reconnect', (data, callback) => {
+      try {
+        const { playerId, lobbyCode } = data;
+        if (!playerId || !lobbyCode) {
+          return callback({ error: 'Missing playerId or lobbyCode' });
+        }
+
+        const lobby = Lobby.findByCode(lobbyCode);
+        if (!lobby) {
+          return callback({ error: 'Lobby not found' });
+        }
+
+        const player = lobby.players.get(playerId);
+        if (!player) {
+          return callback({ error: 'Player not found in lobby' });
+        }
+
+        // Cancel the grace period timeout
+        if (player.disconnectTimeout) {
+          clearTimeout(player.disconnectTimeout);
+          player.disconnectTimeout = null;
+        }
+
+        // Update socket mapping
+        playersBySocket.delete(player.socketId);
+        player.socketId = socket.id;
+        player.disconnected = false;
+        playersBySocket.set(socket.id, player);
+
+        // Rejoin socket room
+        socket.join(lobby.code);
+
+        console.log(`Player ${player.username} reconnected to lobby ${lobby.code}`);
+
+        // Broadcast reconnection to other players
+        socket.to(lobby.code).emit('lobby:player-reconnected', {
+          player: player.toPublic(),
+          lobby: lobby.toPublic()
+        });
+
+        // Build reconnect game state if a game is in progress
+        let gameState = null;
+        if (lobby.currentGame) {
+          gameState = buildReconnectGameState(lobby, playerId);
+        }
+
+        callback({
+          success: true,
+          player: player.toPublic(),
+          lobby: lobby.toPublic(),
+          gameState
+        });
+      } catch (error) {
+        console.error('Error reconnecting player:', error);
+        callback({ error: error.message });
+      }
+    });
+
     // Handle disconnection
     socket.on('disconnect', () => {
       console.log(`Client disconnected: ${socket.id}`);
-      handlePlayerLeave(socket, io);
+      handlePlayerDisconnect(socket, io);
     });
   });
 }
@@ -289,6 +350,70 @@ function handlePlayerLeave(socket, io) {
 
   playersBySocket.delete(socket.id);
   return { success: true };
+}
+
+/**
+ * Handle a player disconnecting (grace period before removal)
+ */
+function handlePlayerDisconnect(socket, io) {
+  const player = playersBySocket.get(socket.id);
+  if (!player) return;
+
+  const lobby = player.lobbyCode ? Lobby.findByCode(player.lobbyCode) : null;
+
+  if (!lobby) {
+    // Not in a lobby, just clean up
+    playersBySocket.delete(socket.id);
+    return;
+  }
+
+  // Mark as disconnected and remove from socket map
+  player.disconnected = true;
+  playersBySocket.delete(socket.id);
+
+  // Broadcast disconnection status
+  io.to(lobby.code).emit('lobby:player-disconnected', {
+    player: player.toPublic(),
+    lobby: lobby.toPublic()
+  });
+
+  console.log(`Player ${player.username} disconnected from lobby ${lobby.code}, grace period started`);
+
+  // Start grace period timer
+  player.disconnectTimeout = setTimeout(() => {
+    player.disconnectTimeout = null;
+    console.log(`Grace period expired for ${player.username} in lobby ${lobby.code}`);
+
+    // Perform the actual removal
+    const result = lobby.removePlayer(player.id);
+
+    if (result.destroyed) {
+      console.log(`Lobby ${lobby.code} destroyed (empty)`);
+    } else if (result.newHost) {
+      io.to(lobby.code).emit('lobby:host-changed', {
+        newHost: result.newHost.toPublic(),
+        lobby: lobby.toPublic()
+      });
+      console.log(`New host in ${lobby.code}: ${result.newHost.username}`);
+    }
+
+    io.to(lobby.code).emit('lobby:player-left', {
+      player: player.toPublic(),
+      lobby: lobby.toPublic()
+    });
+  }, DISCONNECT_GRACE_PERIOD);
+}
+
+/**
+ * Build game state for a reconnecting player
+ */
+function buildReconnectGameState(lobby, playerId) {
+  const gameModule = getGame(lobby.currentGame);
+  if (!gameModule || !gameModule.getReconnectState) {
+    return { gameId: lobby.currentGame };
+  }
+  const state = gameModule.getReconnectState(lobby, playerId);
+  return { gameId: lobby.currentGame, ...state };
 }
 
 module.exports = {

@@ -30,7 +30,7 @@ function getAvailableGames() {
     {
       id: 'multiply-madness',
       name: 'Multiply Madness',
-      description: '45 seconds of multiplication! Answer fast, wrong answers cost 3 seconds. Fewest correct loses!',
+      description: '15 seconds of multiplication! Answer fast, wrong answers cost 3 seconds. Fewest correct loses!',
       minPlayers: 2,
       maxPlayers: 8
     }
