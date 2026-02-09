@@ -175,6 +175,8 @@ function setupSocketHandlers(io) {
           gameModule.startWordSubmission(lobby, io);
         } else if (data.gameId === 'multiply-madness') {
           gameModule.startGame(lobby, io);
+        } else if (data.gameId === 'queens') {
+          gameModule.startGame(lobby, io);
         }
 
         callback({ success: true });

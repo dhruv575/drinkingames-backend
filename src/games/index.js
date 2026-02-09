@@ -1,11 +1,13 @@
 const deadDrawPoker = require('./deadDrawPoker');
 const drawingGame = require('./drawingGame');
 const multiplyMadness = require('./multiplyMadness');
+const queens = require('./queens');
 
 const games = {
   [deadDrawPoker.GAME_NAME]: deadDrawPoker,
   [drawingGame.GAME_NAME]: drawingGame,
-  [multiplyMadness.GAME_NAME]: multiplyMadness
+  [multiplyMadness.GAME_NAME]: multiplyMadness,
+  [queens.GAME_NAME]: queens
 };
 
 /**
@@ -31,6 +33,13 @@ function getAvailableGames() {
       id: 'multiply-madness',
       name: 'Multiply Madness',
       description: '15 seconds of multiplication! Answer fast, wrong answers cost 3 seconds. Fewest correct loses!',
+      minPlayers: 2,
+      maxPlayers: 8
+    },
+    {
+      id: 'queens',
+      name: 'Queens',
+      description: 'Race to place 6 queens on a 6x6 grid! One per row, column, and region with no adjacent queens. Slowest solver loses!',
       minPlayers: 2,
       maxPlayers: 8
     }
