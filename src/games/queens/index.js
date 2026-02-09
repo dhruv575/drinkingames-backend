@@ -4,189 +4,156 @@ const GRID_SIZE = 6;
 const TIME_LIMIT = 60000; // 60 seconds
 
 /**
- * Place N queens on an NxN grid such that:
- * - One queen per row
- * - One queen per column
- * - No two queens are king-adjacent (|dr|<=1 && |dc|<=1)
- * Returns array of column indices (index = row), or null if failed.
+ * Generate random contiguous regions by building a random spanning tree
+ * of the grid graph, then removing (n-1) edges to create n components.
+ * Returns a 6x6 grid of region IDs (0 to n-1).
  */
-function placeQueens() {
+function generateRandomRegions() {
   const n = GRID_SIZE;
-  const cols = new Array(n).fill(-1);
 
-  function isValid(row, col) {
-    for (let r = 0; r < row; r++) {
-      const c = cols[r];
-      // Same column
-      if (c === col) return false;
-      // King-adjacent
-      if (Math.abs(r - row) <= 1 && Math.abs(c - col) <= 1) return false;
+  // Build all grid edges
+  const edges = [];
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      if (c + 1 < n) edges.push([r * n + c, r * n + c + 1]);
+      if (r + 1 < n) edges.push([r * n + c, (r + 1) * n + c]);
     }
+  }
+
+  // Shuffle edges for random spanning tree
+  for (let i = edges.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [edges[i], edges[j]] = [edges[j], edges[i]];
+  }
+
+  // Union-Find
+  const parent = Array.from({ length: n * n }, (_, i) => i);
+  const rnk = new Array(n * n).fill(0);
+
+  function find(x) {
+    while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; }
+    return x;
+  }
+
+  function unite(x, y) {
+    const px = find(x), py = find(y);
+    if (px === py) return false;
+    if (rnk[px] < rnk[py]) parent[px] = py;
+    else if (rnk[px] > rnk[py]) parent[py] = px;
+    else { parent[py] = px; rnk[px]++; }
     return true;
   }
 
-  function solve(row) {
-    if (row === n) return true;
-
-    // Shuffle columns for randomness
-    const order = Array.from({ length: n }, (_, i) => i);
-    for (let i = n - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [order[i], order[j]] = [order[j], order[i]];
+  // Kruskal's: build random spanning tree
+  const treeEdges = [];
+  for (const [a, b] of edges) {
+    if (unite(a, b)) {
+      treeEdges.push([a, b]);
+      if (treeEdges.length === n * n - 1) break;
     }
-
-    for (const col of order) {
-      if (isValid(row, col)) {
-        cols[row] = col;
-        if (solve(row + 1)) return true;
-        cols[row] = -1;
-      }
-    }
-    return false;
   }
 
-  return solve(0) ? cols.slice() : null;
-}
+  // Shuffle tree edges, remove first (n-1) to create n components
+  for (let i = treeEdges.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [treeEdges[i], treeEdges[j]] = [treeEdges[j], treeEdges[i]];
+  }
 
-/**
- * Generate regions via round-robin BFS growth from queen positions.
- * Each region seeds at its queen cell, grows to adjacent unassigned cells.
- * Returns a 6x6 grid of region IDs (0-5).
- */
-function generateRegions(queenCols) {
-  const n = GRID_SIZE;
+  const keptEdges = treeEdges.slice(n - 1); // remove first n-1
+
+  // Reset union-find and rebuild with kept edges
+  for (let i = 0; i < n * n; i++) { parent[i] = i; rnk[i] = 0; }
+  for (const [a, b] of keptEdges) {
+    unite(a, b);
+  }
+
+  // Assign region IDs
   const grid = Array.from({ length: n }, () => new Array(n).fill(-1));
+  const rootToRegion = {};
+  let nextRegion = 0;
 
-  // Seed each region at its queen position
-  const queues = [];
-  for (let row = 0; row < n; row++) {
-    const col = queenCols[row];
-    grid[row][col] = row; // region ID = row index
-    queues.push([[row, col]]);
-  }
-
-  const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
-  let totalAssigned = n; // n queens already placed
-
-  while (totalAssigned < n * n) {
-    let anyGrew = false;
-
-    for (let region = 0; region < n; region++) {
-      const queue = queues[region];
-      if (queue.length === 0) continue;
-
-      const nextQueue = [];
-      for (const [r, c] of queue) {
-        for (const [dr, dc] of dirs) {
-          const nr = r + dr;
-          const nc = c + dc;
-          if (nr >= 0 && nr < n && nc >= 0 && nc < n && grid[nr][nc] === -1) {
-            grid[nr][nc] = region;
-            totalAssigned++;
-            nextQueue.push([nr, nc]);
-          }
-        }
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      const root = find(r * n + c);
+      if (!(root in rootToRegion)) {
+        rootToRegion[root] = nextRegion++;
       }
-      queues[region] = nextQueue;
-      if (nextQueue.length > 0) anyGrew = true;
-    }
-
-    if (!anyGrew && totalAssigned < n * n) {
-      // Shouldn't happen with valid queen placement, but safety check
-      return null;
+      grid[r][c] = rootToRegion[root];
     }
   }
+
+  // Verify we got exactly n regions
+  if (nextRegion !== n) return null;
 
   return grid;
 }
 
 /**
- * Count solutions for the given region grid.
- * Stops early if count exceeds 1 (we only need to know if it's unique).
+ * Find all valid queen placements for a given region grid.
+ * Returns the unique solution as column array, or null if not unique.
+ * Constraints: one queen per row, column, region, no king-adjacency.
  */
-function countSolutions(grid) {
+function findUniqueSolution(grid) {
   const n = GRID_SIZE;
   const cols = new Array(n).fill(-1);
-  let count = 0;
+  const usedCols = new Set();
+  const usedRegions = new Set();
+  const solutions = [];
 
-  // Build region map: regionId -> set of (row, col) strings
-  const regionCells = {};
-  for (let r = 0; r < n; r++) {
-    for (let c = 0; c < n; c++) {
-      const regionId = grid[r][c];
-      if (!regionCells[regionId]) regionCells[regionId] = new Set();
-      regionCells[regionId].add(`${r},${c}`);
+  function isKingAdjacent(row, col) {
+    if (row > 0) {
+      const prevCol = cols[row - 1];
+      if (Math.abs(prevCol - col) <= 1) return true;
     }
-  }
-
-  function isValid(row, col) {
-    for (let r = 0; r < row; r++) {
-      const c = cols[r];
-      if (c === col) return false;
-      if (Math.abs(r - row) <= 1 && Math.abs(c - col) <= 1) return false;
-      // Same region
-      if (grid[r][c] === grid[row][col]) return false;
-    }
-    return true;
+    return false;
   }
 
   function solve(row) {
     if (row === n) {
-      count++;
+      solutions.push(cols.slice());
       return;
     }
-    if (count > 1) return; // Early exit
+    if (solutions.length > 1) return;
 
     for (let col = 0; col < n; col++) {
-      if (isValid(row, col)) {
-        cols[row] = col;
-        solve(row + 1);
-        cols[row] = -1;
-        if (count > 1) return;
-      }
+      if (usedCols.has(col)) continue;
+      const region = grid[row][col];
+      if (usedRegions.has(region)) continue;
+      if (isKingAdjacent(row, col)) continue;
+
+      cols[row] = col;
+      usedCols.add(col);
+      usedRegions.add(region);
+      solve(row + 1);
+      cols[row] = -1;
+      usedCols.delete(col);
+      usedRegions.delete(region);
+
+      if (solutions.length > 1) return;
     }
   }
 
   solve(0);
-  return count;
-}
 
-/**
- * Check if region sizes are roughly equal (each region has exactly 6 cells for a 6x6 grid).
- */
-function regionsAreEqual(grid) {
-  const n = GRID_SIZE;
-  const sizes = {};
-  for (let r = 0; r < n; r++) {
-    for (let c = 0; c < n; c++) {
-      const id = grid[r][c];
-      sizes[id] = (sizes[id] || 0) + 1;
-    }
-  }
-
-  const expectedSize = (n * n) / n; // 36/6 = 6
-  return Object.values(sizes).every(s => s === expectedSize);
+  if (solutions.length === 1) return solutions[0];
+  return null;
 }
 
 /**
  * Generate a valid Queens puzzle with retry loop.
+ * Strategy: generate random contiguous regions, then check for unique solution.
  * Returns { grid, solution } or throws if generation fails.
  */
 function generatePuzzle() {
-  const maxAttempts = 100;
+  const maxAttempts = 2000;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const queenCols = placeQueens();
-    if (!queenCols) continue;
-
-    const grid = generateRegions(queenCols);
+    const grid = generateRandomRegions();
     if (!grid) continue;
 
-    if (!regionsAreEqual(grid)) continue;
-
-    const solutions = countSolutions(grid);
-    if (solutions === 1) {
-      return { grid, solution: queenCols };
+    const solution = findUniqueSolution(grid);
+    if (solution) {
+      return { grid, solution };
     }
   }
 
